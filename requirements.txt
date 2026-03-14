@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+pandas
+numpy
+python-dotenv
+groq
+resend
+setuptools
