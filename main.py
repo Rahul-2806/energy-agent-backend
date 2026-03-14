@@ -277,7 +277,14 @@ Return ONLY JSON: {{"price_analysis":"...","news_signals":"...","risk_assessment
         raw = r.choices[0].message.content.strip()
         if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
-        return {"success": True, "reasoning": json.loads(raw)}
+        parsed = json.loads(raw)
+        # Ensure all fields are strings not nested objects
+        for key in ["price_analysis","news_signals","risk_assessment","market_outlook","reasoning_summary"]:
+            if key in parsed and not isinstance(parsed[key], str):
+                parsed[key] = str(parsed[key])
+        if "key_factors" in parsed and not isinstance(parsed["key_factors"], list):
+            parsed["key_factors"] = [str(parsed["key_factors"])]
+        return {"success": True, "reasoning": parsed}
     except Exception as e:
         print(f"❌ Groq market_reasoner error: {e}")
         return {"success": False, "reasoning": {"recommendation":"HOLD","confidence":"LOW","reasoning_summary":"Analysis unavailable.","key_factors":[]}}
