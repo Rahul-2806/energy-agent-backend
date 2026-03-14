@@ -273,7 +273,7 @@ PRICE DATA ({price_data.get('market_label','Europe')}) — Source: {src}:
 - Volatility: €{s.get('volatility_24h')} /MWh | Trend: {s.get('trend')} | Change: {s.get('pct_change_24h')}%
 NEWS:\n{articles_text}
 Return ONLY JSON: {{"price_analysis":"...","news_signals":"...","risk_assessment":"...","market_outlook":"...","recommendation":"BUY|SELL|HOLD","confidence":"HIGH|MEDIUM|LOW","reasoning_summary":"...","key_factors":["f1","f2","f3"]}}"""
-        r = groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":prompt}], temperature=0.3, max_tokens=1000)
+        r = groq_client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role":"user","content":prompt}], temperature=0.3, max_tokens=1000)
         raw = r.choices[0].message.content.strip()
         if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
@@ -286,7 +286,7 @@ def tool_summarize_news(articles):
     try:
         if not articles: return {"overall_sentiment":"NEUTRAL","sentiment_score":0.0,"key_events":[],"supply_signals":"N/A","demand_signals":"N/A","geopolitical_risks":"N/A","market_moving_news":"N/A"}
         text = "\n".join([f"[{a['source']}] {a['title']}: {a['description']}" for a in articles[:8]])
-        r = groq_client.chat.completions.create(model="llama-3.3-70b-versatile",
+        r = groq_client.chat.completions.create(model="llama-3.1-8b-instant",
             messages=[{"role":"user","content":f'Analyze energy news. Return ONLY JSON: {{"overall_sentiment":"BULLISH|BEARISH|NEUTRAL","sentiment_score":<-1 to 1>,"key_events":["e1","e2","e3"],"supply_signals":"...","demand_signals":"...","geopolitical_risks":"...","market_moving_news":"..."}}\nARTICLES:\n{text}'}],
             temperature=0.2, max_tokens=600)
         raw = r.choices[0].message.content.strip()
@@ -360,7 +360,7 @@ def run_full_analysis(market="DE", notify=False):
     return result
 
 def scheduler_loop():
-    print("🕐 Scheduler started — running every 10 minutes")
+    print("🕐 Scheduler started — running every 30 minutes")
     while True:
         try:
             print(f"⚡ Auto-analysis at {datetime.now().strftime('%H:%M:%S')}")
@@ -369,7 +369,7 @@ def scheduler_loop():
             print(f"✅ Done: {result['recommendation']['action']} | {result['recommendation']['confidence']} | {result['data_source']}")
         except Exception as e:
             print(f"❌ Scheduler error: {e}")
-        time.sleep(600)
+        time.sleep(1800)
 
 @app.on_event("startup")
 async def startup():
@@ -481,7 +481,7 @@ async def ask_agent(request: dict):
     if not question: raise HTTPException(status_code=400, detail="Question required")
     try:
         price_data = tool_analyze_prices(market); s = price_data.get("summary",{}); src = price_data.get("data_source","Unknown")
-        r = groq_client.chat.completions.create(model="llama-3.3-70b-versatile",
+        r = groq_client.chat.completions.create(model="llama-3.1-8b-instant",
             messages=[{"role":"user","content":f"You are EnergyAgent, expert AI for European energy trading.\nMarket ({price_data.get('market_label','Europe')}) — {src}: €{s.get('current_price')}/MWh | {s.get('trend')} | {s.get('pct_change_24h')}% | Vol €{s.get('volatility_24h')}/MWh\nQuestion: {question}\nAnswer concisely and professionally."}],
             temperature=0.4, max_tokens=500)
         return JSONResponse({"answer":r.choices[0].message.content.strip(),"timestamp":datetime.now().isoformat(),"data_source":src})
