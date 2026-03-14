@@ -64,7 +64,9 @@ def send_brevo_email(to_email: str, subject: str, html_content: str):
         msg["From"]    = f"EnergyAgent <{GMAIL_USER}>"
         msg["To"]      = to_email
         msg.attach(MIMEText(html_content, "html"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.ehlo()
+            server.starttls()
             server.login(GMAIL_USER, GMAIL_PASSWORD)
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
         print(f"✅ Gmail email sent to {to_email}")
