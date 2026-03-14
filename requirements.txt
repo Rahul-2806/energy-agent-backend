@@ -5,5 +5,5 @@ pandas
 numpy
 python-dotenv
 groq
-resend
 setuptools
+python-multipart
