@@ -15,8 +15,11 @@ load_dotenv()
 NEWSAPI_KEY  = os.getenv("NEWSAPI_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
-GMAIL_USER     = os.getenv("GMAIL_USER")
-GMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+GMAIL_USER        = os.getenv("GMAIL_USER")
+GMAIL_PASSWORD    = os.getenv("GMAIL_APP_PASSWORD")
+TWILIO_SID        = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_TOKEN      = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WA_FROM    = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
@@ -39,6 +42,8 @@ def save_json(path, data):
 
 analysis_history     = load_json(HISTORY_FILE, [])
 subscribers          = load_json(SUBSCRIBERS_FILE, [])
+WA_SUBSCRIBERS_FILE  = "wa_subscribers.json"
+wa_subscribers       = load_json(WA_SUBSCRIBERS_FILE, [])
 alert_config         = load_json(ALERTS_FILE, {"price_above": 150, "price_below": 30, "volatility_above": 25})
 last_news_fetch      = {"time": 0, "data": None}
 last_analysis_result = {"data": None}
@@ -54,26 +59,79 @@ MARKET_META = {
 
 # ── BREVO EMAIL ───────────────────────────────────────────────────────────────
 def send_brevo_email(to_email: str, subject: str, html_content: str):
-    """Send email via Gmail SMTP — lands in inbox, not spam."""
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
+    """Send email via Brevo REST API — works on Railway (HTTPS, no SMTP)."""
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = f"EnergyAgent <{GMAIL_USER}>"
-        msg["To"]      = to_email
-        msg.attach(MIMEText(html_content, "html"))
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        print(f"✅ Gmail email sent to {to_email}")
-        return True
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": BREVO_API_KEY, "Content-Type": "application/json"},
+            json={
+                "sender":     {"name": os.getenv("BREVO_SENDER_NAME","EnergyAgent"), "email": os.getenv("BREVO_SENDER_EMAIL","rahulsr2806@gmail.com")},
+                "to":         [{"email": to_email}],
+                "subject":    subject,
+                "htmlContent": html_content,
+            },
+            timeout=15
+        )
+        if r.status_code in [200, 201]:
+            print(f"✅ Brevo email sent to {to_email}")
+            return True
+        else:
+            print(f"❌ Brevo error {r.status_code}: {r.text[:200]}")
+            return False
     except Exception as e:
-        print(f"❌ Gmail SMTP error: {e}")
+        print(f"❌ Brevo exception: {e}")
         return False
+
+def send_whatsapp(to_number: str, message: str):
+    """Send WhatsApp message via Twilio."""
+    try:
+        r = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json",
+            auth=(TWILIO_SID, TWILIO_TOKEN),
+            data={
+                "From": TWILIO_WA_FROM,
+                "To":   f"whatsapp:{to_number}",
+                "Body": message,
+            },
+            timeout=10
+        )
+        if r.status_code == 201:
+            print(f"✅ WhatsApp sent to {to_number}")
+            return True
+        else:
+            print(f"❌ WhatsApp error {r.status_code}: {r.text[:200]}")
+            return False
+    except Exception as e:
+        print(f"❌ WhatsApp exception: {e}")
+        return False
+
+def send_whatsapp_alert(alert_data, price_data, reasoning):
+    """Send WhatsApp alert to all WA subscribers."""
+    if not wa_subscribers:
+        return
+    s   = price_data.get("summary", {})
+    rec = reasoning.get("recommendation", "HOLD")
+    con = reasoning.get("confidence", "LOW")
+    src = price_data.get("data_source", "Unknown")
+    mkt = price_data.get("market_label", "Europe")
+    rec_emoji = "🟢" if rec == "BUY" else "🔴" if rec == "SELL" else "🟡"
+    high_alerts = [a for a in alert_data if a["severity"] == "HIGH"]
+    alert_text = "\n".join([f"⚠️ {a['message']}" for a in high_alerts[:3]])
+    msg = f"""⚡ *EnergyAgent Alert*
+━━━━━━━━━━━━━━━
+{rec_emoji} *{rec}* | Confidence: {con}
+📍 Market: {mkt}
+💶 Price: €{s.get('current_price')}/MWh
+📈 24h Change: {s.get('pct_change_24h',0):+.1f}%
+📊 Source: {src}
+━━━━━━━━━━━━━━━
+{alert_text}
+━━━━━━━━━━━━━━━
+_{reasoning.get('reasoning_summary','')[:200]}_
+
+View dashboard: https://energy-agent-gilt.vercel.app"""
+    for number in wa_subscribers:
+        send_whatsapp(number, msg)
 
 def build_alert_email_html(alert_data, price_data, reasoning, market_label):
     s   = price_data.get("summary", {})
@@ -294,6 +352,9 @@ def run_full_analysis(market="DE", notify=False):
         elif high_alerts:
             remaining = int((EMAIL_COOLDOWN - (now - last_email_sent["time"])) / 60)
             print(f"⏳ Alert suppressed — cooldown active ({remaining} min remaining)")
+        # WhatsApp alerts — also rate limited
+        if high_alerts and (now - last_email_sent["time"]) > EMAIL_COOLDOWN:
+            send_whatsapp_alert(alerts, price_data, reasoning)
     return result
 
 def scheduler_loop():
@@ -369,6 +430,37 @@ class AlertConfig(BaseModel):
     price_above: Optional[float] = None
     price_below: Optional[float] = None
     volatility_above: Optional[float] = None
+
+class WASubscribeRequest(BaseModel):
+    phone: str
+
+@app.post("/api/wa/subscribe")
+def wa_subscribe(req: WASubscribeRequest):
+    phone = req.phone.strip().replace(" ","").replace("-","")
+    if not phone.startswith("+"): phone = "+" + phone
+    if phone in wa_subscribers:
+        return JSONResponse({"message":"Already subscribed!","subscribed":True})
+    wa_subscribers.append(phone)
+    save_json(WA_SUBSCRIBERS_FILE, wa_subscribers)
+    # Send welcome WhatsApp
+    send_whatsapp(phone, """⚡ *Welcome to EnergyAgent!*
+━━━━━━━━━━━━━━━
+You're now subscribed to real-time European energy market alerts via WhatsApp!
+
+You'll receive alerts when high-severity trading signals are detected.
+
+🌐 Dashboard: https://energy-agent-gilt.vercel.app
+━━━━━━━━━━━━━━━
+_Powered by ENTSO-E Real Prices + Groq AI_""")
+    return JSONResponse({"message":"Subscribed! Check WhatsApp for welcome message.","subscribed":True})
+
+@app.post("/api/wa/unsubscribe")
+def wa_unsubscribe(req: WASubscribeRequest):
+    phone = req.phone.strip()
+    if phone in wa_subscribers:
+        wa_subscribers.remove(phone)
+        save_json(WA_SUBSCRIBERS_FILE, wa_subscribers)
+    return JSONResponse({"message":"Unsubscribed from WhatsApp alerts.","subscribed":False})
 
 @app.post("/api/alerts/config")
 def set_alert_config(cfg: AlertConfig):
