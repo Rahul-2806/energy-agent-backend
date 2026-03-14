@@ -278,7 +278,8 @@ Return ONLY JSON: {{"price_analysis":"...","news_signals":"...","risk_assessment
         if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
         return {"success": True, "reasoning": json.loads(raw)}
-    except:
+    except Exception as e:
+        print(f"❌ Groq market_reasoner error: {e}")
         return {"success": False, "reasoning": {"recommendation":"HOLD","confidence":"LOW","reasoning_summary":"Analysis unavailable.","key_factors":[]}}
 
 def tool_summarize_news(articles):
@@ -292,7 +293,8 @@ def tool_summarize_news(articles):
         if "```json" in raw: raw = raw.split("```json")[1].split("```")[0].strip()
         elif "```" in raw: raw = raw.split("```")[1].split("```")[0].strip()
         return json.loads(raw)
-    except:
+    except Exception as e:
+        print(f"❌ Groq summarize_news error: {e}")
         return {"overall_sentiment":"NEUTRAL","sentiment_score":0.0,"key_events":[],"supply_signals":"N/A","demand_signals":"N/A","geopolitical_risks":"N/A","market_moving_news":"N/A"}
 
 def tool_generate_alerts(price_data, reasoning):
