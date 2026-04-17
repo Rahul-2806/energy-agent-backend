@@ -281,7 +281,13 @@ Return ONLY JSON: {{"price_analysis":"...","news_signals":"...","risk_assessment
         # Ensure all fields are strings not nested objects
         for key in ["price_analysis","news_signals","risk_assessment","market_outlook","reasoning_summary"]:
             if key in parsed and not isinstance(parsed[key], str):
-                parsed[key] = str(parsed[key])
+                val = parsed[key]
+                if isinstance(val, dict):
+                    parsed[key] = " | ".join(f"{k}: {v}" for k, v in val.items())
+                elif isinstance(val, list):
+                    parsed[key] = " | ".join(str(i) for i in val)
+                else:
+                    parsed[key] = str(val)
         if "key_factors" in parsed and not isinstance(parsed["key_factors"], list):
             parsed["key_factors"] = [str(parsed["key_factors"])]
         return {"success": True, "reasoning": parsed}
